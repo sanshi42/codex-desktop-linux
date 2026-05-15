@@ -161,6 +161,26 @@ source_repo_overlay_paths() {
     git -C "$SOURCE_REPO_DIR" diff --name-only --diff-filter="$diff_filter" HEAD --
 }
 
+source_repo_overlay_remove_paths() {
+    local base_ref="${1:-}"
+
+    if [ -n "$base_ref" ]; then
+        {
+            git -C "$SOURCE_REPO_DIR" diff --name-status --find-renames "$base_ref...HEAD" --
+            git -C "$SOURCE_REPO_DIR" diff --name-status --find-renames HEAD --
+        } | awk '
+            $1 ~ /^D/ && NF >= 2 { print $2; next }
+            $1 ~ /^R/ && NF >= 3 { print $2; next }
+        ' | awk 'NF && !seen[$0]++'
+        return 0
+    fi
+
+    git -C "$SOURCE_REPO_DIR" diff --name-status --find-renames HEAD -- | awk '
+        $1 ~ /^D/ && NF >= 2 { print $2; next }
+        $1 ~ /^R/ && NF >= 3 { print $2; next }
+    '
+}
+
 source_repo_has_overlay() {
     local base_ref=""
 
@@ -221,6 +241,7 @@ apply_source_overlay() {
 
     while IFS= read -r path; do
         [ -n "$path" ] || continue
+        [ -e "$SOURCE_REPO_DIR/$path" ] || continue
         target_path="$MANAGED_REPO_DIR/$path"
         mkdir -p "$(dirname "$target_path")"
         rm -rf "$target_path"
@@ -230,7 +251,7 @@ apply_source_overlay() {
     while IFS= read -r path; do
         [ -n "$path" ] || continue
         rm -rf "$MANAGED_REPO_DIR/$path"
-    done < <(source_repo_overlay_paths "D" "$base_ref")
+    done < <(source_repo_overlay_remove_paths "$base_ref")
 }
 
 prepare_build_repo() {
