@@ -343,25 +343,67 @@ function applyLocalEnvironmentActionModalDraftPatch(currentSource) {
   const stateNeedle = "workspaceRoot:u}=e,d=zt()";
   const statePatch =
     "workspaceRoot:u}=e,[codexLinuxActionDraft,codexLinuxSetActionDraft]=(0,Q.useState)(()=>n),codexLinuxUpdateActionDraft=e=>(codexLinuxSetActionDraft(t=>({...t,...e})),l(e)),d=zt()";
-  if (!patchedFunction.includes(stateNeedle)) {
+  const requiredReplacements = [
+    {
+      needle: stateNeedle,
+      replacement: statePatch,
+      description: "draft state insertion point",
+    },
+    {
+      needle: "if(t[0]!==n||",
+      replacement: "if(t[0]!==codexLinuxActionDraft||t[0]!==n||",
+      description: "modal memo guard",
+    },
+    {
+      needle: "{...n,command:I,name:P}",
+      replacement: "{...codexLinuxActionDraft,command:I,name:P}",
+      description: "saved action payload",
+    },
+    {
+      needle: "n.icon",
+      replacement: "codexLinuxActionDraft.icon",
+      description: "icon draft references",
+    },
+    {
+      needle: "n.name",
+      replacement: "codexLinuxActionDraft.name",
+      description: "name draft references",
+    },
+    {
+      needle: "n.command",
+      replacement: "codexLinuxActionDraft.command",
+      description: "command draft references",
+    },
+    {
+      needle: "l({icon:e.value})",
+      replacement: "codexLinuxUpdateActionDraft({icon:e.value})",
+      description: "icon update callback",
+    },
+    {
+      needle: "l({name:e.target.value})",
+      replacement: "codexLinuxUpdateActionDraft({name:e.target.value})",
+      description: "name update callback",
+    },
+    {
+      needle: "l({command:e})",
+      replacement: "codexLinuxUpdateActionDraft({command:e})",
+      description: "command update callback",
+    },
+  ];
+
+  const missingReplacement = requiredReplacements.find(
+    ({ needle }) => !patchedFunction.includes(needle),
+  );
+  if (missingReplacement != null) {
     console.warn(
-      "WARN: Could not find local environment action modal draft state insertion point — skipping action input patch",
+      `WARN: Could not find local environment action modal ${missingReplacement.description} — skipping action input patch`,
     );
     return currentSource;
   }
 
-  patchedFunction = patchedFunction.replace(stateNeedle, statePatch);
-  patchedFunction = patchedFunction.replace(
-    "if(t[0]!==n||",
-    "if(t[0]!==codexLinuxActionDraft||t[0]!==n||",
-  );
-  patchedFunction = patchedFunction.replaceAll("{...n,command:I,name:P}", "{...codexLinuxActionDraft,command:I,name:P}");
-  patchedFunction = patchedFunction.replaceAll("n.icon", "codexLinuxActionDraft.icon");
-  patchedFunction = patchedFunction.replaceAll("n.name", "codexLinuxActionDraft.name");
-  patchedFunction = patchedFunction.replaceAll("n.command", "codexLinuxActionDraft.command");
-  patchedFunction = patchedFunction.replaceAll("l({icon:e.value})", "codexLinuxUpdateActionDraft({icon:e.value})");
-  patchedFunction = patchedFunction.replaceAll("l({name:e.target.value})", "codexLinuxUpdateActionDraft({name:e.target.value})");
-  patchedFunction = patchedFunction.replaceAll("l({command:e})", "codexLinuxUpdateActionDraft({command:e})");
+  for (const { needle, replacement } of requiredReplacements) {
+    patchedFunction = patchedFunction.replaceAll(needle, replacement);
+  }
 
   return `${beforeFunction}${patchedFunction}${afterFunction}`;
 }
