@@ -22,7 +22,6 @@ const {
   COMPUTER_USE_UI_ENV_VAR,
   COMPUTER_USE_UI_SETTINGS_KEY,
   applyAutomationScheduleMultiTimePatch,
-  applyKeybindsSettingsIndexPatch,
   applyLinuxComputerUseFeaturePatch,
   applyLinuxComputerUseInstallFlowPatch,
   applyLinuxNativeDesktopAppsHandlerPatch,
@@ -97,7 +96,6 @@ const {
   keybindsSettingsAsset,
   linuxDesktopSettingsAsset,
   applyLinuxDesktopSettingsSectionsPatch,
-  applyKeybindsSettingsSharedPatch,
   applyLinuxDesktopSettingsSharedPatch,
 } = require("./patches/keybinds-settings.js");
 const {
@@ -129,7 +127,10 @@ const {
   applyLinuxTooltipWindowControlsCollisionPatch,
   applyLinuxWindowControlsSafeAreaPatch,
 } = require("./patches/webview-assets.js");
-const { patchAssetFiles } = require("./patches/shared.js");
+const {
+  findCodexRequestWebviewAsset,
+  patchAssetFiles,
+} = require("./patches/shared.js");
 const { featurePatchDescriptors } = require("./patches/registry.js");
 
 const mainBundlePrefix =
@@ -1108,13 +1109,6 @@ function keybindsIndexBundleFixture() {
   ].join("");
 }
 
-function keybindsIndexBundleWithLazyAliasDriftFixture() {
-  return keybindsIndexBundleFixture().replaceAll(
-    "(0,Z.lazy)(()=>s(",
-    "(0,R.lazy)(()=>q(",
-  );
-}
-
 function settingsSharedBundleFixture() {
   return [
     '"general-settings":{id:`settings.nav.general-settings`,defaultMessage:`General`,description:`Title for general settings section`},appearance:{id:`settings.nav.appearance`,defaultMessage:`Appearance`,description:`Title for appearance settings section`},',
@@ -1169,8 +1163,8 @@ function createNativeKeyboardShortcutsSettingsFixture() {
     'import{s as s}from"./chunk-A.js";function n(){return{}}function t(){return{jsx(){},jsxs(){},Fragment:"Fragment"}}react.transitional.element;export{n,t};',
   );
   writeAsset(
-    "setting-storage-A.js",
-    'async function requestCodex(...args){let[request]=args,{params:params,source:source}=request;return send("vscode://codex/",params)}export{requestCodex as z};',
+    "shared-app-A.js",
+    'function requestCodex(...args){let[method,request]=args,{params:params,select:select,signal:signal,source:source}=request??{};return rawCodex(method,params,select,signal,source)}async function rawCodex(method,params,select,signal,source){let result=(await transport.post(`vscode://codex/${method}`,JSON.stringify(params),headers(source),signal)).body;return select?select(result):result}export{requestCodex as z};',
   );
   writeAsset("general-settings-A.js", "hotkey-window-hotkey-state");
   writeAsset("toggle-A.js", "export{t};");
@@ -1202,10 +1196,10 @@ function createModernNativeKeyboardShortcutsSettingsFixture() {
     fs.writeFileSync(path.join(assetsDir, name), source, "utf8");
   };
 
-  writeAsset("chunk-A.js", "");
+  writeAsset("rolldown-runtime-A.js", "function n(e){return e}function s(e){return e}export{n,s};");
   writeAsset(
-    "jsx-runtime-A.js",
-    'import{s as s}from"./chunk-A.js";function n(){return{}}function t(){return{jsx(){},jsxs(){},Fragment:"Fragment"}}react.transitional.element;export{n,t};',
+    "shared-runtime-A.js",
+    'import{s as s}from"./rolldown-runtime-A.js";function jsxFactory(){return{jsx(){},jsxs(){},Fragment:"Fragment"}}function reactFactory(){return{useState(){},useCallback(){},useEffect(){}}}function memoCache(){}export{jsxFactory as I,memoCache as L,reactFactory as R};',
   );
   writeAsset(
     "setting-storage-A.js",
@@ -1219,7 +1213,16 @@ function createModernNativeKeyboardShortcutsSettingsFixture() {
   writeAsset("settings-content-layout-A.js", "export{n,r,t};");
   writeAsset("settings-group-A.js", "export{n,t};");
   writeAsset("settings-surface-A.js", "export{t};");
-  writeAsset("keyboard-shortcuts-settings-A.js", "slug:`keyboard-shortcuts`");
+  writeAsset(
+    "keyboard-shortcuts-settings-A.js",
+    [
+      'import{n as __module,s as __toESM}from"./rolldown-runtime-A.js";',
+      'import{I as __jsxFactory,L as __memoCache,R as __reactFactory}from"./shared-runtime-A.js";',
+      "function KeyboardShortcutsSettings(){let t=(0,React.useState)(null);return (0,$.jsx)(`div`,{children:t})}",
+      "var React,$;__module(()=>{React=__toESM(__reactFactory(),1),$=__jsxFactory()})();",
+      "slug:`keyboard-shortcuts`;export{KeyboardShortcutsSettings};",
+    ].join(""),
+  );
   writeAsset(
     "settings-page-A.js",
     [
@@ -1229,6 +1232,100 @@ function createModernNativeKeyboardShortcutsSettingsFixture() {
       "var Qn=[{key:`app`,slugs:[`general-settings`,`profile`,`keyboard-shortcuts`]}];",
       "function visible(e){switch(e.slug){case`general-settings`:case`agent`:case`personalization`:return!0;case`keyboard-shortcuts`:return!0}}",
       "function loading(H){let W=!1;if(H)bb0:switch(H.slug){case`appearance`:case`general-settings`:case`agent`:case`git-settings`:case`data-controls`:case`personalization`:W=!1;break bb0;case`keyboard-shortcuts`:W=!1;break bb0}return W}",
+    ].join(""),
+  );
+  writeAsset(
+    "app-initial~app-main~page~remote-conversation-page~new-thread-panel-page~settings-page~shared-A.js",
+    settingsSharedBundleFixture(),
+  );
+  writeAsset(
+    "app-initial~app-main~remote-conversation-page~settings-page~hotkey-window-thread-page~mcp-s-A.js",
+    [
+      "var c,l=e((()=>{c=`general-settings.import.profile.keyboard-shortcuts.codex-micro.appshots.appearance.pets.agent.git-settings.data-controls.cloud-settings.cloud-environments.code-review.personalization.usage.browser-use.computer-use.local-environments.worktrees.environments.mcp-settings.hooks-settings.connections.plugins-settings.skills-settings`.split(`.`)})),u,d,f,p=e((()=>{",
+      "l(),u=`general-settings`,d=function(e){return e.String=`string`,e.Array=`array`,e.Record=`record`,e}({}),",
+      "f=[{slug:`general-settings`},{slug:`import`},{slug:`profile`},{slug:`appearance`},{slug:`pets`},{slug:`appshots`},{slug:`git-settings`},{slug:`connections`},{slug:`cloud-settings`},{slug:`cloud-environments`},{slug:`code-review`},{slug:`local-environments`},{slug:`worktrees`},{slug:`agent`},{slug:`personalization`},{slug:`keyboard-shortcuts`},{slug:`usage`},{slug:`browser-use`},{slug:`computer-use`},{slug:`mcp-settings`},{slug:`hooks-settings`},{slug:`plugins-settings`},{slug:`skills-settings`},{slug:`data-controls`}]",
+      "}));",
+    ].join(""),
+  );
+
+  return { extractedDir, assetsDir };
+}
+
+// Mirrors Codex 26.623.42026, where the lazy settings route map was hoisted out of
+// `settings-page-*.js` into a hashed `app-initial~app-main~*.js` concatenation chunk
+// (assigned as a bare `X={...}` inside an IIFE body, no `var` keyword). The
+// `settings-page-*.js` bundle then carries only the icon map, nav order, slug
+// groups, and visibility/loading switches. This is the layout that rendered the
+// Linux desktop nav entry with the page component injected as its icon.
+function createSplitRouteNativeKeyboardShortcutsSettingsFixture() {
+  const extractedDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-split-route-shortcuts-"));
+  const assetsDir = path.join(extractedDir, "webview", "assets");
+  fs.mkdirSync(assetsDir, { recursive: true });
+
+  const writeAsset = (name, source = "") => {
+    fs.writeFileSync(path.join(assetsDir, name), source, "utf8");
+  };
+
+  writeAsset("rolldown-runtime-A.js", "function n(e){return e}function s(e){return e}export{n,s};");
+  writeAsset(
+    "shared-runtime-A.js",
+    'import{s as s}from"./rolldown-runtime-A.js";function jsxFactory(){return{jsx(){},jsxs(){},Fragment:"Fragment"}}function reactFactory(){return{useState(){},useCallback(){},useEffect(){}}}function memoCache(){}export{jsxFactory as I,memoCache as L,reactFactory as R};',
+  );
+  writeAsset(
+    "setting-storage-A.js",
+    'async function requestCodex(...args){let[request]=args,{params:params,source:source}=request;return send("vscode://codex/",params)}export{requestCodex as z};',
+  );
+  writeAsset("toggle-A.js", "export{t};");
+  writeAsset(
+    "settings-row-A.js",
+    "function a(e){let{label:t,description:n,control:r}=e;return null}export{a as r};",
+  );
+  writeAsset("settings-content-layout-A.js", "export{n,r,t};");
+  writeAsset("settings-group-A.js", "export{n,t};");
+  writeAsset("settings-surface-A.js", "export{t};");
+  writeAsset(
+    "keyboard-shortcuts-settings-A.js",
+    [
+      'import{n as __module,s as __toESM}from"./rolldown-runtime-A.js";',
+      'import{I as __jsxFactory,L as __memoCache,R as __reactFactory}from"./shared-runtime-A.js";',
+      "function KeyboardShortcutsSettings(){let t=(0,React.useState)(null);return (0,$.jsx)(`div`,{children:t})}",
+      "var React,$;__module(()=>{React=__toESM(__reactFactory(),1),$=__jsxFactory()})();",
+      "slug:`keyboard-shortcuts`;export{KeyboardShortcutsSettings};",
+    ].join(""),
+  );
+  // The icon/navigation bundle: no lazy route map lives here, only the slug -> icon
+  // component map plus the order, group, visibility, and loading metadata.
+  writeAsset(
+    "settings-page-A.js",
+    [
+      'var Hn={"general-settings":wt,"keyboard-shortcuts":xn};',
+      "var Wn=[`general-settings`,`profile`,`keyboard-shortcuts`];",
+      "var Qn=[{key:`app`,slugs:[`general-settings`,`profile`,`keyboard-shortcuts`]}];",
+      "function visible(e){switch(e.slug){case`general-settings`:case`agent`:case`personalization`:return!0;case`keyboard-shortcuts`:return!0}}",
+      "function loading(H){let W=!1;if(H)bb0:switch(H.slug){case`appearance`:case`general-settings`:case`agent`:case`git-settings`:case`data-controls`:case`personalization`:W=!1;break bb0;case`keyboard-shortcuts`:W=!1;break bb0}return W}",
+    ].join(""),
+  );
+  // The hoisted lazy route map, assigned as a bare `FW={...}` inside an IIFE body.
+  writeAsset(
+    "app-initial~app-main~automations-page-A.js",
+    [
+      "var Bn,Ya,Pr,FW,Xn=e((()=>{Bn=s(),Ya=t(f(),1),Pr=o(),",
+      'FW={"general-settings":(0,Ya.lazy)(()=>Pr(()=>import(`./general-settings-A.js`).then(e=>({default:e.GeneralSettings})),__vite__mapDeps([1,2]))),',
+      '"keyboard-shortcuts":(0,Ya.lazy)(()=>Pr(()=>import(`./keyboard-shortcuts-settings-A.js`).then(e=>({default:e.KeyboardShortcutsSettings})),__vite__mapDeps([3])))}',
+      "}));",
+    ].join(""),
+  );
+  writeAsset(
+    "app-initial~app-main~page~remote-conversation-page~new-thread-panel-page~settings-page~shared-A.js",
+    settingsSharedBundleFixture(),
+  );
+  writeAsset(
+    "app-initial~app-main~remote-conversation-page~settings-page~hotkey-window-thread-page~mcp-s-A.js",
+    [
+      "var c,l=e((()=>{c=`general-settings.import.profile.keyboard-shortcuts.codex-micro.appshots.appearance.pets.agent.git-settings.data-controls.cloud-settings.cloud-environments.code-review.personalization.usage.browser-use.computer-use.local-environments.worktrees.environments.mcp-settings.hooks-settings.connections.plugins-settings.skills-settings`.split(`.`)})),u,d,f,p=e((()=>{",
+      "l(),u=`general-settings`,d=function(e){return e.String=`string`,e.Array=`array`,e.Record=`record`,e}({}),",
+      "f=[{slug:`general-settings`},{slug:`import`},{slug:`profile`},{slug:`appearance`},{slug:`pets`},{slug:`appshots`},{slug:`git-settings`},{slug:`connections`},{slug:`cloud-settings`},{slug:`cloud-environments`},{slug:`code-review`},{slug:`local-environments`},{slug:`worktrees`},{slug:`agent`},{slug:`personalization`},{slug:`keyboard-shortcuts`},{slug:`usage`},{slug:`browser-use`},{slug:`computer-use`},{slug:`mcp-settings`},{slug:`hooks-settings`},{slug:`plugins-settings`},{slug:`skills-settings`},{slug:`data-controls`}]",
+      "}));",
     ].join(""),
   );
 
@@ -3809,34 +3906,6 @@ test("inserts native desktop app icon handler before a final native apps handler
   assert.deepEqual(JSON.parse(JSON.stringify(linuxIcon)), { iconSmall: "" });
 });
 
-test("adds Keybinds settings route after upstream minified variable drift", () => {
-  const patched = applyPatchTwice(applyKeybindsSettingsIndexPatch, keybindsIndexBundleFixture());
-
-  assert.match(
-    patched,
-    /var i_e=\{keybinds:\(0,Z\.lazy\)\(\(\)=>s\(\(\)=>import\(`\.\/keybinds-settings-linux\.js`\)/,
-  );
-  assert.match(patched, /var Kge=\{keybinds:xh,"general-settings":xh,/);
-  assert.match(patched, /qge=\[`general-settings`,`keybinds`,`appearance`/);
-  assert.match(patched, /slugs:\[`general-settings`,`keybinds`,`appearance`/);
-  assert.match(patched, /case`keybinds`:return l===`electron`/);
-  assert.match(patched, /case`keybinds`:k=!1;break bb0;/);
-  assert.match(patched, /codexLinuxKeybindOverridesRuntime/);
-});
-
-test("adds Keybinds settings route with current lazy and preload aliases", () => {
-  const patched = applyPatchTwice(
-    applyKeybindsSettingsIndexPatch,
-    keybindsIndexBundleWithLazyAliasDriftFixture(),
-  );
-
-  assert.match(
-    patched,
-    /var i_e=\{keybinds:\(0,R\.lazy\)\(\(\)=>q\(\(\)=>import\(`\.\/keybinds-settings-linux\.js`\)/,
-  );
-  assert.doesNotMatch(patched, /keybinds:\(0,Z\.lazy\)\(\(\)=>s\(/);
-});
-
 test("adds Linux desktop settings route when upstream owns Keyboard Shortcuts", () => {
   const patched = applyPatchTwice(
     applyLinuxDesktopSettingsIndexPatch,
@@ -3853,6 +3922,45 @@ test("adds Linux desktop settings route when upstream owns Keyboard Shortcuts", 
   assert.match(patched, /case`linux-desktop`:return l===`electron`/);
   assert.match(patched, /case`linux-desktop`:k=!1;break bb0;/);
   assert.doesNotMatch(patched, /codexLinuxKeybindOverridesRuntime/);
+});
+
+test("finds a unique current Codex request API asset outside legacy vscode-api chunks", () => {
+  const extractedDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-request-api-"));
+  const assetsDir = path.join(extractedDir, "webview", "assets");
+  try {
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(assetsDir, "app-initial~settings-page-A.js"),
+      'function requestCodex(...args){let[request]=args,{params:params,select:select,signal:signal,source:source}=request??{};return rawCodex("method",params,select,signal,source)}async function rawCodex(method,params,select,signal,source){return transport.post(`vscode://codex/${method}`,params,source,signal)}export{requestCodex as R};',
+      "utf8",
+    );
+
+    assert.deepEqual(findCodexRequestWebviewAsset(assetsDir), {
+      assetName: "app-initial~settings-page-A.js",
+      exportName: "R",
+    });
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
+});
+
+test("fails loudly when current Codex request API asset detection is ambiguous", () => {
+  const extractedDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-request-api-ambiguous-"));
+  const assetsDir = path.join(extractedDir, "webview", "assets");
+  const requestSource =
+    'function requestCodex(...args){let[request]=args,{params:params,select:select,signal:signal,source:source}=request??{};return rawCodex("method",params,select,signal,source)}async function rawCodex(method,params,select,signal,source){return transport.post(`vscode://codex/${method}`,params,source,signal)}export{requestCodex as R};';
+  try {
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.writeFileSync(path.join(assetsDir, "app-a.js"), requestSource, "utf8");
+    fs.writeFileSync(path.join(assetsDir, "app-b.js"), requestSource, "utf8");
+
+    assert.throws(
+      () => findCodexRequestWebviewAsset(assetsDir),
+      /found multiple Codex request API assets \(app-a\.js, app-b\.js\)/,
+    );
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
 });
 
 test("keeps Linux desktop toggles visible with native Keyboard Shortcuts", () => {
@@ -3878,13 +3986,14 @@ test("keeps Linux desktop toggles visible with native Keyboard Shortcuts", () =>
     assert.match(linuxDesktopSource, /Build information/);
     assert.match(linuxDesktopSource, /Linux source commit/);
     assert.match(linuxDesktopSource, /Copy commit/);
-    assert.match(linuxDesktopSource, /Open commit/);
+    assert.match(linuxDesktopSource, /Open on GitHub/);
+    assert.doesNotMatch(linuxDesktopSource, /Source commit URL/);
     assert.match(linuxDesktopSource, /href:url/);
     assert.match(linuxDesktopSource, /codex-linux-get-build-info/);
     assert.match(linuxDesktopSource, /codex-linux-system-tray-enabled/);
     assert.match(linuxDesktopSource, /codex-linux-auto-update-on-exit/);
     assert.match(linuxDesktopSource, /import\{r as SettingsRow\}from"\.\/settings-row-A\.js"/);
-    assert.match(linuxDesktopSource, /import\{z as __post\}from"\.\/setting-storage-A\.js"/);
+    assert.match(linuxDesktopSource, /import\{z as __post\}from"\.\/shared-app-A\.js"/);
 
     assert.match(
       fs.readFileSync(path.join(assetsDir, "settings-sections-A.js"), "utf8"),
@@ -3898,13 +4007,78 @@ test("keeps Linux desktop toggles visible with native Keyboard Shortcuts", () =>
     assert.match(appMainSource, /linux-desktop-settings-linux\.js/);
     assert.doesNotMatch(appMainSource, /keybinds-settings-linux\.js/);
     const settingsPageSource = fs.readFileSync(path.join(assetsDir, "settings-page-A.js"), "utf8");
+    // The navigation bundle owns the icon map: linux-desktop must reuse the
+    // general-settings icon, never the lazy page component (the route lives in
+    // app-main-A.js). Injecting the page component here renders a broken nav icon.
     assert.match(settingsPageSource, /"linux-desktop":q,"general-settings":q/);
+    assert.doesNotMatch(settingsPageSource, /"linux-desktop":codexLinuxDesktopSettings/);
     assert.match(settingsPageSource, /slugs:\[`general-settings`,`linux-desktop`,`profile`/);
     assert.match(settingsPageSource, /case`linux-desktop`:case`general-settings`/);
 
     const secondResult = patchKeybindsSettingsAssets(extractedDir);
     assert.equal(secondResult.matched, true);
     assert.equal(secondResult.changed, 0);
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
+});
+
+test("skips old Keybinds settings generation when native Keyboard Shortcuts are missing", () => {
+  const { extractedDir, assetsDir } = createNativeKeyboardShortcutsSettingsFixture();
+  try {
+    fs.rmSync(path.join(assetsDir, "keyboard-shortcuts-settings-A.js"));
+
+    const { value: result, warnings } = captureWarns(() => patchKeybindsSettingsAssets(extractedDir));
+
+    assert.equal(result.matched, false);
+    assert.match(result.reason, /current upstream Keyboard Shortcuts settings route is missing/);
+    assert.ok(warnings.some((warning) => warning.includes("current upstream Keyboard Shortcuts settings route is missing")));
+    assert.equal(fs.existsSync(path.join(assetsDir, keybindsSettingsAsset)), false);
+    assert.equal(fs.existsSync(path.join(assetsDir, linuxDesktopSettingsAsset)), false);
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
+});
+
+test("writes only missing Linux settings fallback components after required checks pass", () => {
+  const { extractedDir, assetsDir } = createModernNativeKeyboardShortcutsSettingsFixture();
+  try {
+    fs.rmSync(path.join(assetsDir, "settings-row-A.js"));
+
+    const { value: result, warnings } = captureWarns(() => patchKeybindsSettingsAssets(extractedDir));
+
+    assert.equal(result.matched, true);
+    assert.deepEqual(warnings, []);
+    assert.equal(fs.existsSync(path.join(assetsDir, "linux-settings-row-linux.js")), true);
+    assert.equal(fs.existsSync(path.join(assetsDir, "linux-settings-page-linux.js")), false);
+    assert.equal(fs.existsSync(path.join(assetsDir, "linux-settings-section-linux.js")), false);
+    assert.equal(fs.existsSync(path.join(assetsDir, "linux-settings-group-linux.js")), false);
+    assert.match(
+      fs.readFileSync(path.join(assetsDir, linuxDesktopSettingsAsset), "utf8"),
+      /import\{n as SettingsRow\}from"\.\/linux-settings-row-linux\.js"/,
+    );
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
+});
+
+test("does not leave generated Linux settings fallbacks when later current-DMG route checks fail", () => {
+  const { extractedDir, assetsDir } = createModernNativeKeyboardShortcutsSettingsFixture();
+  try {
+    fs.rmSync(path.join(assetsDir, "settings-row-A.js"));
+    fs.writeFileSync(
+      path.join(assetsDir, "settings-page-A.js"),
+      "settings.nav.keyboard-shortcuts;var icons={\"general-settings\":wt,\"keyboard-shortcuts\":xn};",
+      "utf8",
+    );
+
+    const { value: result, warnings } = captureWarns(() => patchKeybindsSettingsAssets(extractedDir));
+
+    assert.equal(result.matched, false);
+    assert.match(result.reason, /could not find Linux desktop settings route bundle/);
+    assert.ok(warnings.some((warning) => warning.includes("could not find Linux desktop settings route bundle")));
+    assert.equal(fs.existsSync(path.join(assetsDir, linuxDesktopSettingsAsset)), false);
+    assert.equal(fs.existsSync(path.join(assetsDir, "linux-settings-row-linux.js")), false);
   } finally {
     fs.rmSync(extractedDir, { recursive: true, force: true });
   }
@@ -3929,6 +4103,10 @@ test("adds Linux desktop settings when native shortcuts use a consolidated setti
     assert.match(linuxDesktopSource, /Linux desktop/);
     assert.match(linuxDesktopSource, /Build information/);
     assert.match(linuxDesktopSource, /codex-linux-get-build-info/);
+    assert.match(linuxDesktopSource, /Open on GitHub/);
+    assert.match(linuxDesktopSource, /href:url/);
+    assert.doesNotMatch(linuxDesktopSource, /Source commit URL/);
+    assert.match(linuxDesktopSource, /import\{R as __reactFactory,I as __jsxFactory\}from"\.\/shared-runtime-A\.js"/);
 
     const settingsPageSource = fs.readFileSync(path.join(assetsDir, "settings-page-A.js"), "utf8");
     assert.match(settingsPageSource, /linux-desktop-settings-linux\.js/);
@@ -3936,6 +4114,66 @@ test("adds Linux desktop settings when native shortcuts use a consolidated setti
     assert.match(settingsPageSource, /=\[`general-settings`,`linux-desktop`,`profile`/);
     assert.match(settingsPageSource, /slugs:\[`general-settings`,`linux-desktop`,`profile`/);
     assert.match(settingsPageSource, /case`linux-desktop`:case`general-settings`/);
+
+    const splitSharedSource = fs.readFileSync(
+      path.join(
+        assetsDir,
+        "app-initial~app-main~page~remote-conversation-page~new-thread-panel-page~settings-page~shared-A.js",
+      ),
+      "utf8",
+    );
+    assert.match(splitSharedSource, /settings\.nav\.linux-desktop/);
+    assert.match(splitSharedSource, /settings\.section\.linux-desktop/);
+
+    const splitSectionsSource = fs.readFileSync(
+      path.join(
+        assetsDir,
+        "app-initial~app-main~remote-conversation-page~settings-page~hotkey-window-thread-page~mcp-s-A.js",
+      ),
+      "utf8",
+    );
+    assert.match(splitSectionsSource, /general-settings\.linux-desktop\.import\.profile\.keyboard-shortcuts/);
+    assert.match(splitSectionsSource, /\{slug:`linux-desktop`\},\{slug:`import`\}/);
+  } finally {
+    fs.rmSync(extractedDir, { recursive: true, force: true });
+  }
+});
+
+test("adds Linux desktop settings when the lazy route map is hoisted into a separate app chunk", () => {
+  const { extractedDir, assetsDir } = createSplitRouteNativeKeyboardShortcutsSettingsFixture();
+  try {
+    const { value: result, warnings } = captureWarns(() => patchKeybindsSettingsAssets(extractedDir));
+
+    assert.equal(result.matched, true);
+    assert.ok(result.changed >= 3);
+    assert.deepEqual(warnings, []);
+    assert.equal(fs.existsSync(path.join(assetsDir, linuxDesktopSettingsAsset)), true);
+
+    // The icon/navigation bundle must reuse the general-settings icon for the new
+    // entry and must NOT receive the lazy page component as a nav icon (the bug
+    // that rendered a broken floating "Linux desktop" box over the settings page).
+    const settingsPageSource = fs.readFileSync(path.join(assetsDir, "settings-page-A.js"), "utf8");
+    assert.match(settingsPageSource, /"linux-desktop":wt,"general-settings":wt/);
+    assert.doesNotMatch(settingsPageSource, /linux-desktop-settings-linux\.js/);
+    assert.doesNotMatch(settingsPageSource, /codexLinuxDesktopSettings/);
+    assert.match(settingsPageSource, /=\[`general-settings`,`linux-desktop`,`profile`/);
+    assert.match(settingsPageSource, /slugs:\[`general-settings`,`linux-desktop`,`profile`/);
+    assert.match(settingsPageSource, /case`linux-desktop`:case`general-settings`/);
+
+    // The lazy route is registered in the hoisted app chunk, reusing the bundle's
+    // own lazy/preload aliases against the bare (no `var`) map assignment.
+    const routeChunkSource = fs.readFileSync(
+      path.join(assetsDir, "app-initial~app-main~automations-page-A.js"),
+      "utf8",
+    );
+    assert.match(
+      routeChunkSource,
+      /"linux-desktop":\(0,Ya\.lazy\)\(\(\)=>Pr\(\(\)=>import\(`\.\/linux-desktop-settings-linux\.js`\),\[\],import\.meta\.url\)\),"general-settings":/,
+    );
+
+    const secondResult = patchKeybindsSettingsAssets(extractedDir);
+    assert.equal(secondResult.matched, true);
+    assert.equal(secondResult.changed, 0);
   } finally {
     fs.rmSync(extractedDir, { recursive: true, force: true });
   }
@@ -3964,17 +4202,6 @@ test("adds the Linux desktop section title when the JSX message component identi
   );
   // The original general-settings case is preserved untouched.
   assert.match(patched, /case`general-settings`:\{let e;return o\[5\]===Symbol\.for\(`react\.memo_cache_sentinel`\)/);
-});
-
-test("adds the keybinds section title when the JSX message component identifier drifts", () => {
-  const patched = applyKeybindsSettingsSharedPatch(
-    settingsSharedBundleWithDriftingJsxAliasFixture(),
-  );
-
-  assert.match(
-    patched,
-    /case`keybinds`:\{return \(0,d\.jsx\)\(r,\{id:`settings\.section\.keybinds`,defaultMessage:`Keybinds`,description:`Title for keybinds settings section`\}\)\}/,
-  );
 });
 
 test("keeps local environment action modal inputs editable inside stored modal content", () => {
