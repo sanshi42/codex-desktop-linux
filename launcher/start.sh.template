@@ -240,6 +240,8 @@ Environment:
                               or force native Wayland with GPU compositing enabled
   CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=0|1
                               Override Wayland side-panel compositing workaround; 1 forces and 0 disables
+  CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=auto|0|1
+                              Override --disable-dev-shm-usage; auto keeps it only when /dev/shm is missing or small
   CODEX_LAUNCHER_LOCK_WAIT_SECONDS=N
                               Seconds to wait for another launcher to leave the startup lock (default: 5)
   CODEX_FORCE_RENDERER_ACCESSIBILITY=auto|0|1
@@ -2612,6 +2614,56 @@ apply_electron_rendering_profile() {
     fi
 }
 
+# --disable-dev-shm-usage exists for containers whose /dev/shm is too small
+# for Chromium's renderer/GPU shared-memory transport (Docker defaults to
+# 64 MiB). Everywhere else the flag pushes those buffers onto disk-backed
+# temp storage and hurts rendering performance, so it is only kept when
+# /dev/shm is missing, not writable, or below 1 GiB.
+dev_shm_size_kb() {
+    local size_kb
+    size_kb="$(df -Pk /dev/shm 2>/dev/null | awk 'NR == 2 { print $2 }')"
+    case "$size_kb" in
+        ""|*[!0-9]*)
+            return 1
+            ;;
+    esac
+    printf '%s\n' "$size_kb"
+}
+
+should_disable_dev_shm_usage() {
+    local min_size_kb=1048576 size_kb
+
+    if [ -n "${CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE:-}" ]; then
+        if truthy_env_value "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE"; then
+            return 0
+        fi
+        if falsey_env_value "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE"; then
+            return 1
+        fi
+        case "$CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE" in
+            auto|AUTO|Auto) ;;
+            *)
+                echo "Invalid CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE='${CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE:-}'; using automatic /dev/shm detection" >&2
+                ;;
+        esac
+    fi
+
+    if [ ! -d /dev/shm ] || [ ! -w /dev/shm ]; then
+        return 0
+    fi
+
+    if ! size_kb="$(dev_shm_size_kb)"; then
+        return 0
+    fi
+
+    if [ "$size_kb" -lt "$min_size_kb" ]; then
+        echo "Detected small /dev/shm (${size_kb} KiB); keeping --disable-dev-shm-usage. Set CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=0 to opt out."
+        return 0
+    fi
+
+    return 1
+}
+
 should_disable_gpu_compositing() {
     if [ "$ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED" -eq 1 ]; then
         return 0
@@ -2694,6 +2746,7 @@ set_electron_defaults() {
     ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS=0
     ELECTRON_GPU_COMPOSITING_DISABLED=0
     ELECTRON_GPU_COMPOSITING_SWITCH_PROVIDED=0
+    ELECTRON_DEV_SHM_USAGE_DISABLED=0
     ELECTRON_RENDERER_ACCESSIBILITY_FORCED=0
     ELECTRON_ARGS=()
     ELECTRON_ENABLE_FEATURES=()
@@ -2898,9 +2951,15 @@ build_electron_launch_args() {
         --no-sandbox
         --class="$CODEX_LINUX_APP_ID"
         --app-id="$CODEX_LINUX_APP_ID"
-        --disable-dev-shm-usage
         --disable-gpu-sandbox
     )
+
+    if should_disable_dev_shm_usage; then
+        ELECTRON_LAUNCH_ARGS+=(--disable-dev-shm-usage)
+        ELECTRON_DEV_SHM_USAGE_DISABLED=1
+    else
+        ELECTRON_DEV_SHM_USAGE_DISABLED=0
+    fi
 
     if should_disable_gpu_compositing; then
         ELECTRON_LAUNCH_ARGS+=(--disable-gpu-compositing)
@@ -3057,7 +3116,7 @@ launch_electron() {
 
     if [ "$WARM_START" -eq 1 ]; then
         release_launcher_lock
-        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
+        echo "Electron warm-start handoff: pid=$RUNNING_APP_PID rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED dev_shm_usage_disabled=$ELECTRON_DEV_SHM_USAGE_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
         if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
             echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
         fi
@@ -3066,7 +3125,7 @@ launch_electron() {
         return $?
     fi
 
-    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
+    echo "Electron launch mode: rendering_mode=$ELECTRON_RENDERING_MODE wslg_detected=$ELECTRON_WSLG_DETECTED ozone_platform=${ELECTRON_OZONE_PLATFORM:-default} ozone_hint=${ELECTRON_OZONE_HINT:-none} gpu_enabled=$ELECTRON_GPU_ENABLED gpu_disable_arg=$ELECTRON_GPU_DISABLE_SWITCH_IN_ARGS gpu_compositing_disabled=$ELECTRON_GPU_COMPOSITING_DISABLED dev_shm_usage_disabled=$ELECTRON_DEV_SHM_USAGE_DISABLED gl_switch_added=$ELECTRON_GL_SWITCH_ADDED renderer_accessibility_forced=$ELECTRON_RENDERER_ACCESSIBILITY_FORCED"
     if [ "$ELECTRON_GPU_COMPOSITING_DISABLED" = "0" ] && [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
         echo "Rendering hint: if the side panel flickers or appears transparent on Wayland, retry with CODEX_ELECTRON_DISABLE_GPU_COMPOSITING=1"
     fi

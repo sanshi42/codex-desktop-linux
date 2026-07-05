@@ -4064,6 +4064,42 @@ EOF
     output="$(env -i PATH="$PATH" HOME="$HOME" WSL_INTEROP=/tmp/codex-wsl WAYLAND_DISPLAY=wayland-0 "$launcher_probe" probe)"
     [[ "$output" == *"mode=wslg"* && "$output" == *"wslg=1"* ]] || fail "auto rendering mode must detect WSLg from WSL and GUI markers: $output"
 
+    local dev_shm_stub_dir="$TMP_DIR/dev-shm-stubs"
+    mkdir -p "$dev_shm_stub_dir/large" "$dev_shm_stub_dir/small" "$dev_shm_stub_dir/broken"
+    cat > "$dev_shm_stub_dir/large/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf 'tmpfs 16000000 0 16000000 0%% /dev/shm\n'
+EOF
+    cat > "$dev_shm_stub_dir/small/df" <<'EOF'
+#!/usr/bin/env bash
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\n'
+printf 'tmpfs 65536 0 65536 0%% /dev/shm\n'
+EOF
+    cat > "$dev_shm_stub_dir/broken/df" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+    chmod +x "$dev_shm_stub_dir/large/df" "$dev_shm_stub_dir/small/df" "$dev_shm_stub_dir/broken/df"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/large:$PATH" HOME="$HOME" "$launcher_probe" probe)"
+    [[ "$output" != *"<--disable-dev-shm-usage>"* ]] || fail "adequate /dev/shm must not disable Chromium /dev/shm usage: $output"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/small:$PATH" HOME="$HOME" "$launcher_probe" probe)"
+    [[ "$output" == *"<--disable-dev-shm-usage>"* ]] || fail "small /dev/shm must keep --disable-dev-shm-usage: $output"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/broken:$PATH" HOME="$HOME" "$launcher_probe" probe)"
+    [[ "$output" == *"<--disable-dev-shm-usage>"* ]] || fail "unreadable /dev/shm capacity must keep --disable-dev-shm-usage: $output"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/large:$PATH" HOME="$HOME" CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=1 "$launcher_probe" probe)"
+    [[ "$output" == *"<--disable-dev-shm-usage>"* ]] || fail "CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=1 must force --disable-dev-shm-usage: $output"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/small:$PATH" HOME="$HOME" CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=0 "$launcher_probe" probe)"
+    [[ "$output" != *"<--disable-dev-shm-usage>"* ]] || fail "CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=0 must suppress --disable-dev-shm-usage: $output"
+
+    output="$(env -i PATH="$dev_shm_stub_dir/small:$PATH" HOME="$HOME" CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=bogus "$launcher_probe" probe 2>/dev/null)"
+    [[ "$output" == *"<--disable-dev-shm-usage>"* ]] || fail "invalid CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE must fall back to /dev/shm detection: $output"
+
     assert_contains "$REPO_DIR/launcher/start.sh.template" "warm_start_ipc_sent"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "launcher_phase"
     assert_contains "$REPO_DIR/launcher/start.sh.template" 'date +%s%N'
@@ -4093,6 +4129,8 @@ EOF
     assert_contains "$REPO_DIR/launcher/start.sh.template" "CODEX_LINUX_RENDERING_MODE=auto|default|wslg|wayland-gpu"
     assert_contains "$REPO_DIR/launcher/start.sh.template" '--ozone-platform-hint="$ELECTRON_OZONE_HINT"'
     assert_contains "$REPO_DIR/launcher/start.sh.template" "--disable-gpu-sandbox"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" "CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=auto|0|1"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" "dev_shm_usage_disabled="
     assert_contains "$REPO_DIR/launcher/start.sh.template" "--force-renderer-accessibility"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "CODEX_FORCE_RENDERER_ACCESSIBILITY=auto|0|1"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "PACKAGED_RUNTIME_HELPER"

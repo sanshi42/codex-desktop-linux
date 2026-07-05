@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- The launcher now passes `--disable-dev-shm-usage` to Electron only when
+  `/dev/shm` is missing, not writable, or smaller than 1 GiB (the container
+  case the flag exists for). On regular desktops Chromium's renderer/GPU
+  shared-memory buffers stay in RAM-backed `/dev/shm` instead of disk-backed
+  temp storage, which improves rendering performance. Override with
+  `CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=auto|0|1`.
 - Refactored ASAR patching internals so `scripts/patch-linux-window-ui.js` is a
   CLI-only entrypoint and patch descriptors/implementations live under
   `scripts/patches/`.
