@@ -3755,7 +3755,7 @@ if "codex_cli_version_probe()" not in source or "codex_cli_version()" not in sou
     raise SystemExit("CLI lookup must log a bounded best-effort resolved CLI version probe")
 if "version unknown; set CODEX_CLI_PATH=/path/to/codex" not in source:
     raise SystemExit("CLI lookup diagnostics must explain explicit CODEX_CLI_PATH pinning")
-if 'pid_parent_matches "$probe_pid" "$self_pid"' not in source:
+if 'local self_pid="${BASHPID:-$$}"' not in source or 'pid_parent_matches "$probe_pid" "$self_pid"' not in source:
     raise SystemExit("CLI version probe watchdog must guard kills against PID reuse")
 if source.count('{ exec 9>&-; } 2>/dev/null || true') < 3:
     raise SystemExit("CLI version probe children and Electron child must close launcher lock fd 9")
@@ -4355,6 +4355,29 @@ PY
     if kill -0 "$hanging_pid" 2>/dev/null; then
         kill -9 "$hanging_pid" 2>/dev/null || true
         fail "hanging CLI probe left process $hanging_pid alive"
+    fi
+
+    local hanging_log_cli="$workspace/hanging-log-codex"
+    local hanging_log_pid_file="$workspace/hanging-log.pid"
+    {
+        printf '#!/usr/bin/env bash\n'
+        printf 'printf "%%s\\n" "$$" > %q\n' "$hanging_log_pid_file"
+        printf 'printf "codex-cli 9.999.0\\n"\n'
+        printf 'exec sleep 2\n'
+    } > "$hanging_log_cli"
+    chmod +x "$hanging_log_cli"
+
+    log_output="$(env -i PATH="/usr/bin:/bin" HOME="$fake_home" TMPDIR="$workspace" "$launcher_probe" log "$hanging_log_cli")"
+    [[ "$log_output" == "Using CODEX_CLI_PATH=$hanging_log_cli (version unknown; set CODEX_CLI_PATH=/path/to/codex to pin a known CLI)" ]] || fail "log path must time out hung CLI version probes under command substitution: $log_output"
+    assert_file_exists "$hanging_log_pid_file"
+    local hanging_log_pid
+    hanging_log_pid="$(cat "$hanging_log_pid_file")"
+    if kill -0 "$hanging_log_pid" 2>/dev/null; then
+        sleep 0.1
+    fi
+    if kill -0 "$hanging_log_pid" 2>/dev/null; then
+        kill -9 "$hanging_log_pid" 2>/dev/null || true
+        fail "hanging CLI log probe left process $hanging_log_pid alive"
     fi
 }
 

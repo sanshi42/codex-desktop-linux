@@ -1428,7 +1428,8 @@ codex_cli_version_probe() {
     local marker="${output_file}.timed-out"
     local probe_pid
     local watchdog_pid
-    local self_pid=$$
+    # Under command substitution, $$ stays the top-level launcher PID.
+    local self_pid="${BASHPID:-$$}"
     local status=0
 
     rm -f "$marker"
