@@ -2715,21 +2715,59 @@ assistive_technology_detected() {
         fi
     done
 
-    if command -v gsettings >/dev/null 2>&1; then
-        case "$(gsettings get org.gnome.desktop.a11y.applications screen-reader-enabled 2>/dev/null)" in
-            true)
-                return 0
-                ;;
-        esac
-    fi
-
     if command -v pgrep >/dev/null 2>&1; then
         if pgrep -x orca >/dev/null 2>&1 || pgrep -x brltty >/dev/null 2>&1; then
             return 0
         fi
     fi
 
-    return 1
+    session_bus_assistive_technology_detected
+}
+
+# Session-bus accessibility signals: the GNOME screen-reader setting plus the
+# AT-SPI state that `codex-computer-use-linux setup` enables (org.a11y.Status
+# IsEnabled via busctl, with org.gnome.desktop.interface toolkit-accessibility
+# as its gsettings fallback). gsettings/busctl can hang on a broken session
+# bus, so the probes run in a subshell killed by the same ppid-guarded
+# watchdog webview_port_is_open uses (/usr/bin/timeout intentionally avoided;
+# see that function), capped at 0.5 s. A killed or failing probe counts as
+# "not detected" and never blocks launch.
+session_bus_assistive_technology_detected() {
+    local probe_pid kill_pid rc=1 self_pid=$$
+
+    ( trap - EXIT
+      if command -v gsettings >/dev/null 2>&1; then
+          case "$(gsettings get org.gnome.desktop.a11y.applications screen-reader-enabled 2>/dev/null || true)" in
+              true) exit 0 ;;
+          esac
+          case "$(gsettings get org.gnome.desktop.interface toolkit-accessibility 2>/dev/null || true)" in
+              true) exit 0 ;;
+          esac
+      fi
+      if command -v busctl >/dev/null 2>&1; then
+          case "$(busctl --user get-property org.a11y.Bus /org/a11y/bus org.a11y.Status IsEnabled 2>/dev/null || true)" in
+              "b true") exit 0 ;;
+          esac
+      fi
+      exit 1 ) 2>/dev/null &
+    probe_pid=$!
+    ( trap - EXIT
+      sleep 0.5
+      [ -r "/proc/$probe_pid/stat" ] || exit 0
+      # /proc/<pid>/stat: "<pid> (comm) <state> <ppid> ..." — comm can contain
+      # spaces/parens, so strip up to the last ") " before splitting fields.
+      local stat_line rest
+      stat_line=$(< "/proc/$probe_pid/stat") || exit 0
+      rest=${stat_line##*) }
+      set -- $rest
+      # $1 = state, $2 = ppid
+      [ "${2:-}" = "$self_pid" ] && kill -9 "$probe_pid" 2>/dev/null
+    ) 2>/dev/null &
+    kill_pid=$!
+    if wait "$probe_pid" 2>/dev/null; then rc=0; fi
+    kill "$kill_pid" 2>/dev/null
+    wait "$kill_pid" 2>/dev/null
+    return $rc
 }
 
 should_force_renderer_accessibility() {

@@ -20,11 +20,17 @@ launcher log, and repository history rather than synthetic benchmarks.
   (observable as `/tmp/.org.chromium.Chromium.*` mappings in every process).
   Override: `CODEX_ELECTRON_DISABLE_DEV_SHM_USAGE=auto|0|1`.
 - `--force-renderer-accessibility` is now added only when an assistive
-  technology is detected (Orca or brltty running, the GNOME screen-reader
-  setting, or accessibility env markers). Keeping the accessibility engine on
-  in every renderer makes each DOM update also rebuild and serialize the
-  accessibility tree; the WSLg and wayland-gpu profiles already skipped the
-  flag for that reason. Override: `CODEX_FORCE_RENDERER_ACCESSIBILITY=1|0`.
+  technology is detected: Orca or brltty running, the GNOME screen-reader
+  setting, the AT-SPI state that `codex-computer-use-linux setup` enables
+  (`org.a11y.Status IsEnabled` via busctl, or its
+  `org.gnome.desktop.interface toolkit-accessibility` gsettings fallback), or
+  accessibility env markers. Keeping the accessibility engine on in every
+  renderer makes each DOM update also rebuild and serialize the accessibility
+  tree; the WSLg and wayland-gpu profiles already skipped the flag for that
+  reason. Session-bus probes (gsettings/busctl) run under the launcher's
+  ppid-guarded watchdog pattern capped at 0.5 s, so a broken session bus
+  counts as "not detected" instead of delaying launch.
+  Override: `CODEX_FORCE_RENDERER_ACCESSIBILITY=1|0`.
 
 Both decisions are visible at runtime in the `Electron launch mode:` line of
 `~/.cache/codex-desktop/launcher.log` (`dev_shm_usage_disabled=`,

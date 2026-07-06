@@ -3932,14 +3932,39 @@ PY
     chmod +x "$launcher_probe"
 
     local at_stub_dir="$TMP_DIR/assistive-tech-stubs"
-    mkdir -p "$at_stub_dir/none" "$at_stub_dir/orca" "$at_stub_dir/screenreader"
+    mkdir -p "$at_stub_dir/none" "$at_stub_dir/orca" "$at_stub_dir/screenreader" \
+        "$at_stub_dir/toolkit" "$at_stub_dir/atspibus" "$at_stub_dir/slowbus"
     printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/none/pgrep"
     printf '%s\n' '#!/usr/bin/env bash' "printf 'false\\n'" > "$at_stub_dir/none/gsettings"
     printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$at_stub_dir/orca/pgrep"
     printf '%s\n' '#!/usr/bin/env bash' "printf 'false\\n'" > "$at_stub_dir/orca/gsettings"
     printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/screenreader/pgrep"
     printf '%s\n' '#!/usr/bin/env bash' "printf 'true\\n'" > "$at_stub_dir/screenreader/gsettings"
-    chmod +x "$at_stub_dir"/*/pgrep "$at_stub_dir"/*/gsettings
+    # Computer Use gsettings fallback: toolkit-accessibility on, screen reader off.
+    cat > "$at_stub_dir/toolkit/gsettings" <<'EOF'
+#!/usr/bin/env bash
+case "${3:-}" in
+    toolkit-accessibility) printf 'true\n' ;;
+    *) printf 'false\n' ;;
+esac
+EOF
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/toolkit/pgrep"
+    # Computer Use primary path: org.a11y.Status IsEnabled=true via busctl.
+    printf '%s\n' '#!/usr/bin/env bash' "printf 'false\\n'" > "$at_stub_dir/atspibus/gsettings"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/atspibus/pgrep"
+    printf '%s\n' '#!/usr/bin/env bash' "printf 'b true\\n'" > "$at_stub_dir/atspibus/busctl"
+    # Hung session bus: gsettings blocks far past the launch-path budget.
+    cat > "$at_stub_dir/slowbus/gsettings" <<'EOF'
+#!/usr/bin/env bash
+sleep 5
+printf 'true\n'
+EOF
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/slowbus/pgrep"
+    local at_stub_variant
+    for at_stub_variant in none orca screenreader toolkit slowbus; do
+        printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$at_stub_dir/$at_stub_variant/busctl"
+    done
+    chmod +x "$at_stub_dir"/*/pgrep "$at_stub_dir"/*/gsettings "$at_stub_dir"/*/busctl
 
     output="$(env -i PATH="$at_stub_dir/none:$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe --x11 -- --use-gl=angle)"
     [[ "$output" == *"electron=<--use-gl=angle>"* ]] || fail "launcher must pass Electron args after -- without the separator: $output"
@@ -4071,6 +4096,20 @@ EOF
 
     output="$(env -i PATH="$at_stub_dir/none:$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=default CODEX_FORCE_RENDERER_ACCESSIBILITY=1 "$launcher_probe" probe)"
     [[ "$output" == *"renderer_accessibility=1"* && "$output" == *"<--force-renderer-accessibility>"* ]] || fail "CODEX_FORCE_RENDERER_ACCESSIBILITY=1 must force renderer accessibility without detected assistive technology: $output"
+
+    output="$(env -i PATH="$at_stub_dir/toolkit:$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe)"
+    [[ "$output" == *"renderer_accessibility=1"* && "$output" == *"<--force-renderer-accessibility>"* ]] || fail "toolkit-accessibility=true (Computer Use gsettings fallback) must force renderer accessibility: $output"
+
+    output="$(env -i PATH="$at_stub_dir/atspibus:$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe)"
+    [[ "$output" == *"renderer_accessibility=1"* && "$output" == *"<--force-renderer-accessibility>"* ]] || fail "org.a11y.Status IsEnabled (Computer Use setup) must force renderer accessibility: $output"
+
+    local at_probe_start_ns at_probe_end_ns at_probe_elapsed_ms
+    at_probe_start_ns="$(date +%s%N)"
+    output="$(env -i PATH="$at_stub_dir/slowbus:$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=default "$launcher_probe" probe)"
+    at_probe_end_ns="$(date +%s%N)"
+    at_probe_elapsed_ms=$(( (10#$at_probe_end_ns - 10#$at_probe_start_ns) / 1000000 ))
+    [[ "$output" == *"renderer_accessibility=0"* && "$output" != *"<--force-renderer-accessibility>"* ]] || fail "a hung session bus must not force renderer accessibility: $output"
+    [ "$at_probe_elapsed_ms" -lt 3000 ] || fail "session-bus assistive-tech probe must be watchdog-capped, took ${at_probe_elapsed_ms}ms: $output"
 
     output="$(env -i PATH="$PATH" HOME="$HOME" CODEX_LINUX_RENDERING_MODE=wslg "$launcher_probe" probe --wayland --use-gl=desktop)"
     [[ "$output" == *"<--ozone-platform=wayland>"* && "$output" == *"electron=<--use-gl=desktop>"* ]] || fail "explicit rendering args must override WSLg defaults: $output"
